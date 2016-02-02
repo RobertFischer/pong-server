@@ -1,14 +1,16 @@
 module Axial.Pong
     (
-      PongConfig { ... }
+      PongConfig(..)
     , defaultPongConfig
+    , withPongServer
     ) where
 
-data PongConfig {
+data PongConfig = PongConfig {
   pongPort :: Int
-}
+} deriving (Eq,Ord,Read,Show)
 
+defaultPongConfig :: PongConfig
 defaultPongConfig = PongConfig 10411
 
-withPongServer :: IO a -> IO a
-withPongServer = id
+withPongServer :: PongConfig -> IO a -> IO a
+withPongServer cfg action = action
