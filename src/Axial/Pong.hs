@@ -1,7 +1,6 @@
 module Axial.Pong
     (
       PongConfig(..)
-    , PongServer
     , defaultPongConfig
     , withPongServer
     ) where
