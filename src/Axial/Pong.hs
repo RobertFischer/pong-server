@@ -6,17 +6,17 @@ module Axial.Pong
     , withPongServer
     ) where
 
-import Network
-import System.IO (hClose, hFlush, hPutStr, hSetBuffering, BufferMode(..), Handle)
-import Control.Exception (bracket)
-import Control.Concurrent (forkIO)
+import Network (withSocketsDo, listenOn, accept, sClose, PortID(..))
+import System.IO (hClose, hPutStr, hSetBuffering, BufferMode(..))
+import Control.Exception (bracket, finally)
+import Control.Concurrent (forkIO, forkFinally, ThreadId, killThread)
 
 data PongConfig = PongConfig {
   pongPort :: Int,
   pongMessage :: () -> IO String
 }
 
-newtype PongServer = PongServer Socket
+newtype PongServer = PongServer ThreadId
 
 defaultPongConfig :: PongConfig
 defaultPongConfig = PongConfig 10411 $ const $ pure "pong"
@@ -26,22 +26,21 @@ withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
 
 startServer :: PongConfig -> IO PongServer
 startServer cfg = withSocketsDo $ do
-  sock <- listenOn portNum
-  forkIO $ socketHandler sock
-  pure $ PongServer sock
+  socket <- listenOn portNum
+  threadId <- forkIO $ socketHandler socket
+  pure $ PongServer threadId
   where
-    socketHandler sock = do
+    socketHandler sock = finally (socketHandlerLoop sock) (sClose sock)
+    socketHandlerLoop sock = do
       (handle, _, _) <- accept sock
-      forkIO $ body handle
-      socketHandler sock
+      _ <- forkFinally (body handle) (const $ hClose handle)
+      socketHandlerLoop sock
     body handle = do
       msg <- (pongMessage cfg) ()
       hSetBuffering handle NoBuffering
       hPutStr handle msg
-      hFlush handle
-      hClose handle
-    portNum = PortNumber pongPortNum
+    portNum = PortNumber $ fromIntegral pongPortNum
     pongPortNum = pongPort cfg
 
 stopServer :: PongServer -> IO ()
-stopServer (PongServer sock) = sClose sock
+stopServer (PongServer threadId) = killThread threadId
