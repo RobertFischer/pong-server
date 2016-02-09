@@ -12,13 +12,13 @@ import Control.Concurrent (forkIO, forkFinally, ThreadId, killThread)
 
 data PongConfig = PongConfig {
   pongPort :: Int,
-  pongMessage :: () -> IO String
+  pongMessage :: IO String
 }
 
 newtype PongServer = PongServer ThreadId
 
 defaultPongConfig :: PongConfig
-defaultPongConfig = PongConfig 10411 $ const $ pure "pong"
+defaultPongConfig = PongConfig 10411 $ pure "pong"
 
 withPongServer :: PongConfig -> IO a -> IO a
 withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
@@ -35,7 +35,7 @@ startServer cfg = withSocketsDo $ do
       _ <- forkFinally (body handle) (const $ hClose handle)
       socketHandlerLoop sock
     body handle = do
-      msg <- (pongMessage cfg) ()
+      msg <- (pongMessage cfg)
       hSetBuffering handle NoBuffering
       hPutStr handle msg
     portNum = PortNumber $ fromIntegral pongPortNum

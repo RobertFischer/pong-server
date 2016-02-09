@@ -5,7 +5,7 @@ For cloud-deployed apps, you often want to be able to monitor for the liveness a
 ways to do this that involve monitoring the process list, as well as checking for CPU and other resource usage. This library enables a simpler approach: run a TCP
 server that you can connect to and "ping" (in the losest sense of the word "ping"). By default, the server runs on 10411 and just responds with the four characters
 "pong" in the system encoding. You can configure the port to any number you would like, and you can make the server say anything you want by passing in a function
-of the type `() -> IO String`.
+of the type `IO String`.
 
 Synopsis
 ----------
