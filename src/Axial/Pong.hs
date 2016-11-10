@@ -5,6 +5,7 @@ module Axial.Pong
     , withPongServer
     ) where
 
+import Data.Default (Default, def)
 import Network (withSocketsDo, listenOn, accept, sClose, PortID(..))
 import System.IO (hClose, hPutStr, hSetBuffering, BufferMode(..))
 import Control.Exception (bracket, finally)
@@ -19,6 +20,9 @@ newtype PongServer = PongServer ThreadId
 
 defaultPongConfig :: PongConfig
 defaultPongConfig = PongConfig 10411 $ pure "pong"
+
+instance Default PongConfig where
+  def = defaultPongConfig
 
 withPongServer :: PongConfig -> IO a -> IO a
 withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
