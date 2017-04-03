@@ -17,3 +17,8 @@ main :: IO ()
 main = withPongServer defaultPongConfig $ do
   -- your code goes here
 ```
+
+Documentation
+---------------
+
+See the Haddock.
