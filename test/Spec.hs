@@ -1,4 +1,4 @@
-import Axial.Pong
+import Network.Pong
 
 import Data.Maybe (isJust, fromJust)
 
@@ -15,7 +15,7 @@ import GHC.IO.Handle (Handle, hGetLine, hClose)
 
 main :: IO ()
 main = hspec $ do
-  describe "Axial Pong server" $ do
+  describe "Pong server" $ do
 
     it "cannot be reached when not running" $ do
       reached <- serverReachable ()

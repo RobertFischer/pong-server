@@ -55,31 +55,36 @@ module Network.Pong
     ) where
 
 import Prelude ()
-import qualified Data.ByteString.Char8 as C
-import ClassyPrelude hiding (catch, finally)
+import ClassyPrelude hiding (handle)
+
 import Control.Concurrent (forkIO)
-import Control.Monad.Trans.Control
-import Control.Monad.Catch (catch, finally)
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Network.HTTP.Types.Status (ok200, internalServerError500, Status(..))
-import Network (withSocketsDo, listenOn, accept, sClose, PortID(..), Socket)
+import Network (withSocketsDo, listenOn, accept, sClose, PortID(..))
 import System.IO (hClose, hSetBuffering, BufferMode(..))
 
+import qualified Data.ByteString.Char8 as C
+
+-- | This is the type of the response. It is mostly aliased to make type signatures more obvious.
+type PongAction = IO ByteString
+
+-- | This is the type of the response for HTTP-based responses. It is mostly aliased to make type signatures more obvious.
+type PongHttpAction = IO Status
+
 -- | This provides the configuration for the pong server.
-data PongConfig m = PongConfig {
+data PongConfig = PongConfig {
   pongPort :: Int, -- ^ The port that this server will run on
-  pongMessage :: m ByteString -- ^ The action which generates a response message
+  pongMessage :: PongAction -- ^ The action which generates a response message
 }
 
-pongMessageHttp200 :: (Monad m) => m ByteString
+pongMessageHttp200 :: PongAction
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the 'ok200' 'Status'.
 pongMessageHttp200 = pongMessageHttp ok200
 
-pongMessageHttp500 :: (Monad m) => m ByteString
+pongMessageHttp500 :: PongAction
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the 'internalServerError500' 'Status'.
 pongMessageHttp500 = pongMessageHttp internalServerError500
 
-pongMessageHttp :: (Monad m) => Status -> m ByteString
+pongMessageHttp :: Status -> PongAction
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the given 'Status'.
 pongMessageHttp status =
   return $ concat ["HTTP/0.9 ", statusCodeBS status, " ", statusMessage status]
@@ -87,50 +92,42 @@ pongMessageHttp status =
       statusCodeBS :: Status -> ByteString
       statusCodeBS = C.pack . show . statusCode
 
-pongCatchHttp :: (MonadCatch m, MonadIO m, Exception e) => m Status -> (e -> m Status) -> m ByteString
+pongCatchHttp :: (Exception e) => PongHttpAction -> (e -> PongHttpAction) -> PongAction
 -- ^ Allows for customization of the result 'Status' given different exceptions.
-pongCatchHttp good bad = pongCatch goodBS badBS
-  where
-    goodBS = do
-      goodValue <- good
-      liftIO $ pongMessageHttp goodValue
+pongCatchHttp good bad = (catch good bad) >>= pongMessageHttp
 
-    badBS = \e -> do
-      badValue <- bad e
-      liftIO $ pongMessageHttp badValue
-
-pongCatch :: (MonadCatch m, MonadIO m, Exception e) => m ByteString -> (e -> m ByteString) -> m ByteString
+pongCatch :: (Exception e) => PongAction -> (e -> PongAction) -> PongAction
 -- ^ Allows for customization of the result message given different exceptions.
 pongCatch = catch -- Yes, we could have just let people use 'catch', but it may be non-obvious
 
 -- | Handle for a running server
 newtype PongServer = PongServer ThreadId
 
-defaultPongConfig :: (Monad m) => PongConfig m
+defaultPongConfig :: PongConfig
 -- ^ Default config that runs on port @10411@ and just prints out the four characters @pong@.
 defaultPongConfig = PongConfig 10411 $ (return $ C.pack $ "pong")
 
-withPongServer :: (MonadBaseControl m b) => PongConfig m -> IO a -> IO a
+withPongServer :: PongConfig -> IO a -> IO a
 -- ^ Entry point to the pong server.
 withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
 
-startServer :: (MonadBaseControl m b) => PongConfig m -> m PongServer
+startServer :: PongConfig -> IO PongServer
 -- ^ Implementation of actually starting the server.
-startServer cfg = control $ \run -> do
+startServer cfg = do
     socket <- withSocketsDo $ listenOn portNum
-    threadId <- forkIO $ socketHandler socket run
+    threadId <- forkIO $ socketHandler socket
     return $ PongServer threadId
   where
     portNum = PortNumber . fromIntegral $ pongPortNum
     pongPortNum = pongPort cfg
-    socketHandler sock run = finally (socketHandlerLoop sock run) (sClose sock)
-    socketHandlerLoop sock run = do
+    socketHandler sock = finally (socketHandlerLoop sock) (sClose sock)
+    socketHandlerLoop sock = do
       (handle, _, _) <- accept sock
-      _ <- forkFinally (body handle run) (const $ hClose handle)
-      socketHandlerLoop sock run
-    body handle run = do
-      msg <- run $ pongMessage cfg -- Only one of these executing at a time
+      _ <- forkFinally (body handle) (const $ hClose handle)
+      socketHandlerLoop sock
+    body handle = do
       hSetBuffering handle NoBuffering
+      msg <- pongMessage cfg
       C.hPutStr handle msg
 
 stopServer :: (MonadIO m) => PongServer -> m ()
