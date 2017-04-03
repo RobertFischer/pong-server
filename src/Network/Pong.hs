@@ -58,6 +58,7 @@ import Prelude ()
 import qualified Data.ByteString.Char8 as C
 import ClassyPrelude hiding (catch, finally)
 import Control.Concurrent (forkIO)
+import Control.Monad.Trans.Control
 import Control.Monad.Catch (catch, finally)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Network.HTTP.Types.Status (ok200, internalServerError500, Status(..))
@@ -109,33 +110,27 @@ defaultPongConfig :: (Monad m) => PongConfig m
 -- ^ Default config that runs on port @10411@ and just prints out the four characters @pong@.
 defaultPongConfig = PongConfig 10411 $ (return $ C.pack $ "pong")
 
-withPongServer :: (MonadIO m, MonadMask m) => PongConfig m -> m a -> m a
+withPongServer :: (MonadBaseControl m b) => PongConfig m -> IO a -> IO a
 -- ^ Entry point to the pong server.
 withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
 
-startServer :: (MonadIO m) => PongConfig m -> m PongServer
+startServer :: (MonadBaseControl m b) => PongConfig m -> m PongServer
 -- ^ Implementation of actually starting the server.
-startServer cfg = liftIO withSocketsDo $ do
-  socket <- liftIO $ listenOn portNum
-  threadId <- liftIO forkIO $ socketHandler socket
-  return $ PongServer threadId
+startServer cfg = control $ \run -> do
+    socket <- withSocketsDo $ listenOn portNum
+    threadId <- forkIO $ socketHandler socket run
+    return $ PongServer threadId
   where
     portNum = PortNumber . fromIntegral $ pongPortNum
     pongPortNum = pongPort cfg
-
-    socketHandler :: (MonadIO m) => Socket -> m ()
-    socketHandler sock = finally (socketHandlerLoop sock) (sClose sock)
-
-    socketHandlerLoop :: (MonadIO m) => Socket -> m ()
-    socketHandlerLoop sock = do
+    socketHandler sock run = finally (socketHandlerLoop sock run) (sClose sock)
+    socketHandlerLoop sock run = do
       (handle, _, _) <- accept sock
-      _ <- forkFinally (body handle) (const $ hClose handle)
-      socketHandlerLoop sock
-
-    body :: (MonadIO m) => Handle -> m ()
-    body handle = do
+      _ <- forkFinally (body handle run) (const $ hClose handle)
+      socketHandlerLoop sock run
+    body handle run = do
+      msg <- run $ pongMessage cfg -- Only one of these executing at a time
       hSetBuffering handle NoBuffering
-      msg <- pongMessage cfg
       C.hPutStr handle msg
 
 stopServer :: (MonadIO m) => PongServer -> m ()
