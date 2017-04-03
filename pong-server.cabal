@@ -1,5 +1,5 @@
 name:                pong-server
-version:             0.0.2.1
+version:             0.0.3.0
 synopsis:            A simple embedded pingable server that runs in the background.
 description:         Please see README.md on GitHub
 homepage:            http://github.com/RobertFischer/pong-server#readme
@@ -7,7 +7,7 @@ license:             PublicDomain
 license-file:        UNLICENSE
 author:              Robert Fischer
 maintainer:          smokejumperit+pong-server@gmail.com
-copyright:           2016 Robert Fischer
+copyright:           2017 Robert Fischer
 category:            utilities
 build-type:          Simple
 -- extra-source-files:
@@ -15,20 +15,16 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Axial.Pong
-  build-depends:       base >= 4.7 && < 5
-                     , network >= 2.6.2.1 && < 2.7
-                     , data-default >= 0.7.1.1 && < 0.8
+  exposed-modules:     Network.Pong
+  build-depends:       base >= 4.9.1.0 && < 5
+                     , network >= 2.6.3.1 && < 2.7
+                     , classy-prelude >= 1.2.0.1 && < 2
+                     , bytestring >= 0.10.8.1 && < 0.11
+                     , http-types >= 0.9.1 && < 1
+                     , exceptions >= 0.8.3 && < 0.9
   default-language:    Haskell2010
-  ghc-options:         -Wall 
+  ghc-options:         -Wall -O3 -Werror
   default-extensions:  OverloadedStrings
-                    ,  LambdaCase
-                    ,  MultiWayIf
-                    ,  TransformListComp
-                    ,  FlexibleInstances
-                    ,  NoMonomorphismRestriction
-                    ,  DeriveGeneric
-                    ,  ScopedTypeVariables
 
 test-suite pong-server-test
   type:                exitcode-stdio-1.0
