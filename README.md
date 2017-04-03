@@ -22,3 +22,11 @@ Documentation
 ---------------
 
 See the Haddock.
+
+Help Wanted
+-------------
+
+I would very much like `pongMessage` to be an unbound monad, and to assume that the user is existing within a monad transformer stack.
+Unfortunately, I get into a slight problem with trying to execute `pongMessage` in one stack while returning `IO`. I am pretty sure
+this is why `MonadBaseControl` exists, but I get type errors in trying to use it. I'd love to have a pair programming session with
+someone to work through this issue.  Failing that, I'll happily take a pull request.
