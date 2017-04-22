@@ -44,11 +44,14 @@ server through the configuration object.
 -}
 module Network.Pong
     (
-      PongConfig(..)
+      PongAction
+    , PongHttpAction
+    , PongConfig(..)
     , defaultPongConfig
-    , pongMessageHttp200
-    , pongMessageHttp500
-    , pongMessageHttp
+    , pongActionHttp200
+    , pongActionHttp500
+    , pongActionFromStatus
+    , pongHttpAction
     , pongCatch
     , pongCatchHttp
     , withPongServer
@@ -57,78 +60,95 @@ module Network.Pong
 import Prelude ()
 import ClassyPrelude hiding (handle)
 
+import Control.Monad.Trans.Control (MonadBaseControl, liftBaseDiscard)
 import Control.Concurrent (forkIO)
-import Network.HTTP.Types.Status (ok200, internalServerError500, Status(..))
+import Network.HTTP.Types.Status (status200, ok200, internalServerError500, Status(..))
 import Network (withSocketsDo, listenOn, accept, sClose, PortID(..))
 import System.IO (hClose, hSetBuffering, BufferMode(..))
 
 import qualified Data.ByteString.Char8 as C
 
 -- | This is the type of the response. It is mostly aliased to make type signatures more obvious.
-type PongAction = IO ByteString
+type PongAction m = m ByteString
 
 -- | This is the type of the response for HTTP-based responses. It is mostly aliased to make type signatures more obvious.
-type PongHttpAction = IO Status
+type PongHttpAction m = m Status
 
 -- | This provides the configuration for the pong server.
-data PongConfig = PongConfig {
+data PongConfig m = PongConfig {
   pongPort :: Int, -- ^ The port that this server will run on
-  pongMessage :: PongAction -- ^ The action which generates a response message
+  pongMessage :: PongAction m -- ^ The action which generates a response message
 }
 
-pongMessageHttp200 :: PongAction
+pongActionHttp200 :: (Monad m) => PongAction m
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the 'ok200' 'Status'.
-pongMessageHttp200 = pongMessageHttp ok200
+pongActionHttp200 = pongActionFromStatus ok200
 
-pongMessageHttp500 :: PongAction
+pongActionHttp500 :: (Monad m) => PongAction m
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the 'internalServerError500' 'Status'.
-pongMessageHttp500 = pongMessageHttp internalServerError500
+pongActionHttp500 = pongActionFromStatus internalServerError500
 
-pongMessageHttp :: Status -> PongAction
+pongActionFromStatus :: (Monad m) => Status -> PongAction m
 -- ^ Provides an action generating an @HTTP/0.9@ response message for the given 'Status'.
-pongMessageHttp status =
+pongActionFromStatus status =
   return $ concat ["HTTP/0.9 ", statusCodeBS status, " ", statusMessage status]
     where
       statusCodeBS :: Status -> ByteString
       statusCodeBS = C.pack . show . statusCode
 
-pongCatchHttp :: (Exception e) => PongHttpAction -> (e -> PongHttpAction) -> PongAction
--- ^ Allows for customization of the result 'Status' given different exceptions.
-pongCatchHttp good bad = (catch good bad) >>= pongMessageHttp
+pongHttpAction :: (Monad m) => PongHttpAction m -> PongAction m
+-- ^ Convert a 'Status' action into one returning a 'ByteString'.
+pongHttpAction action = do
+  status <- action
+  pongActionFromStatus status
 
-pongCatch :: (Exception e) => PongAction -> (e -> PongAction) -> PongAction
+pongCatchHttp :: (MonadCatch m, Exception e) => PongHttpAction m -> (e -> PongHttpAction m) -> PongAction m
+-- ^ Allows for customization of the result 'Status' given different exceptions.
+pongCatchHttp good bad = (catch good bad) >>= pongActionFromStatus
+
+pongCatch :: (MonadCatch m, Exception e) => PongAction m -> (e -> PongAction m) -> PongAction m
 -- ^ Allows for customization of the result message given different exceptions.
 pongCatch = catch -- Yes, we could have just let people use 'catch', but it may be non-obvious
 
 -- | Handle for a running server
 newtype PongServer = PongServer ThreadId
 
-defaultPongConfig :: PongConfig
+defaultPongConfig :: (Monad m) => PongConfig m
 -- ^ Default config that runs on port @10411@ and just prints out the four characters @pong@.
-defaultPongConfig = PongConfig 10411 $ (return $ C.pack $ "pong")
+defaultPongConfig = PongConfig 10411 message
+  where
+    message = pongActionFromStatus defaultStatus
+    defaultStatus = status200 { statusMessage = C.pack "pong" }
 
-withPongServer :: PongConfig -> IO a -> IO a
+withPongServer :: (MonadBaseControl IO m, MonadMask m, MonadIO m) => PongConfig m -> m () -> m ()
 -- ^ Entry point to the pong server.
 withPongServer cfg action = bracket (startServer cfg) stopServer $ const action
 
-startServer :: PongConfig -> IO PongServer
+startServer :: (MonadBaseControl IO m, MonadMask m, MonadIO m) => PongConfig m -> m PongServer
 -- ^ Implementation of actually starting the server.
 startServer cfg = do
-    socket <- withSocketsDo $ listenOn portNum
-    threadId <- forkIO $ socketHandler socket
+    socket <- liftIO $ withSocketsDo $ listenOn portNum
+    threadId <- forkM $ socketHandler socket
     return $ PongServer threadId
   where
+    forkM = liftBaseDiscard forkIO
     portNum = PortNumber . fromIntegral $ pongPortNum
     pongPortNum = pongPort cfg
-    socketHandler sock = finally (socketHandlerLoop sock) (sClose sock)
+    socketHandler sock = finally loopSock closeSock
+      where
+        loopSock = socketHandlerLoop sock
+        closeSock = liftIO $ sClose sock
     socketHandlerLoop sock = do
-      (handle, _, _) <- accept sock
-      _ <- forkFinally (body handle) (const $ hClose handle)
+      (handle, _, _) <- liftIO $ accept sock
+      _ <- forkM $ finally (handleBody handle) (closeHandle handle)
       socketHandlerLoop sock
+        where
+          handleBody handle = body handle
+          closeHandle handle = liftIO $ hClose handle
     body handle = do
-      hSetBuffering handle NoBuffering
+      liftIO $ hSetBuffering handle NoBuffering
       msg <- pongMessage cfg
-      C.hPutStr handle msg
+      liftIO $ C.hPutStr handle msg
 
 stopServer :: (MonadIO m) => PongServer -> m ()
 -- ^ Implementation of actually stopping the server
