@@ -1,5 +1,5 @@
 name:                pong-server
-version:             0.0.3.0
+version:             0.0.4.0
 synopsis:            A simple embedded pingable server that runs in the background.
 description:         Please see README.md on GitHub
 homepage:            http://github.com/RobertFischer/pong-server#readme
