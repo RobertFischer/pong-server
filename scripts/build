@@ -1,0 +1,12 @@
+#!/bin/bash -exu
+
+HEREDIR=`dirname $0`
+cd "$HEREDIR"
+HEREDIR=`pwd`
+
+ROOTDIR="$HEREDIR/.."
+cd "$ROOTDIR"
+ROOTDIR=`pwd`
+
+cd "$ROOTDIR"
+stack build
